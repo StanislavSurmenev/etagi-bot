@@ -105,4 +105,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(conv_handler)
 
 if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    print("🔄 Бот запускается...")
     app.run_polling()
