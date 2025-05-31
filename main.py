@@ -5,7 +5,8 @@ from telegram.ext import (
     ConversationHandler, ContextTypes, filters
 )
 
-BOT_TOKEN = "7885951202:AAE1KWlZh_POYa0-hyRmZKZUD7EB7q1zLIQ"
+import os
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 FORWARD_TO_CHAT_ID = "1183134999"
 
 (ASK_FIO, ASK_REQUEST_ID, ASK_CONTRACT, ASK_CLIENT, ASK_OBJECT, ASK_TIME, ASK_ACTIONS, ASK_FILES) = range(8)
