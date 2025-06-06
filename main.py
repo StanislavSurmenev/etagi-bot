@@ -19,7 +19,7 @@ FORWARD_TO_CHAT_ID = os.environ.get("FORWARD_TO_CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
 # --- Логирование ---
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 
 # --- Flask ---
 app = Flask(__name__)
@@ -27,26 +27,27 @@ app = Flask(__name__)
 # --- Telegram App ---
 telegram_app = Application.builder().token(BOT_TOKEN).build()
 
-# --- Conversation states ---
+# --- Conversation States ---
 ASK_DETAILS, ASK_FILES = range(2)
 user_data_dict = {}
 
 
-# --- Handlers ---
+# --- Telegram Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     user_data_dict[user.id] = {}
-    await update.message.reply_text("Какие действия были уже предприняты? (звонки, сообщения, фиксация и т.п.)")
+    await update.message.reply_text("Какие действия были предприняты?")
     return ASK_DETAILS
 
 async def ask_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data_dict[update.message.from_user.id]["действия"] = update.message.text
-    await update.message.reply_text("Пришлите документы, скрины, фото или видео (можно несколько), или напишите 'нет'")
+    user_id = update.message.from_user.id
+    user_data_dict[user_id]["действия"] = update.message.text
+    await update.message.reply_text("Пришлите документы, скрины или напишите 'нет'")
     return ASK_FILES
 
 async def ask_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.message.from_user
-    data = user_data_dict.get(user.id, {})
+    user_id = update.message.from_user.id
+    data = user_data_dict.get(user_id, {})
     text = (
         f"Новый кейс обхода клиента:\n\n"
         f"Действия: {data.get('действия')}\n"
@@ -60,7 +61,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Операция отменена.")
     return ConversationHandler.END
 
-
 # --- Регистрация хендлеров ---
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
@@ -73,31 +73,23 @@ conv_handler = ConversationHandler(
 telegram_app.add_handler(conv_handler)
 
 
-# --- Flask routes ---
+# --- Flask Routes ---
 @app.route("/")
 def index():
     return "OK"
 
-
 @app.route("/webhook", methods=["POST"])
-async def webhook():
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-        await telegram_app.process_update(update)
-    return "OK", 200
+def webhook():
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    asyncio.create_task(telegram_app.process_update(update))
+    return "ok", 200
 
 
-# --- Webhook setup ---
-async def main():
-    await telegram_app.bot.delete_webhook()
-    await telegram_app.bot.set_webhook(url=WEBHOOK_URL)
-    telegram_app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=WEBHOOK_URL,
-        web_app=app,
-    )
-
-
+# --- Основной запуск ---
 if __name__ == "__main__":
-    asyncio.run(main())
+    async def setup():
+        await telegram_app.bot.delete_webhook()
+        await telegram_app.bot.set_webhook(url=WEBHOOK_URL)
+
+    asyncio.run(setup())
+    app.run(host="0.0.0.0", port=PORT)
