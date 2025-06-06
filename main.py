@@ -1,11 +1,11 @@
 import os
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ConversationHandler, ContextTypes, filters
 )
 
-import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 FORWARD_TO_CHAT_ID = "1183134999"
 
@@ -15,7 +15,10 @@ user_data_dict = {}
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🚀 Запустить опрос", callback_data="start_survey")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Привет! Чтобы оставить обращение, нажмите кнопку ниже 👇", reply_markup=reply_markup)
+    await update.message.reply_text(
+        "Привет! Чтобы оставить обращение, нажмите кнопку ниже 👇",
+        reply_markup=reply_markup
+    )
 
 async def start_survey_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
@@ -54,13 +57,15 @@ async def ask_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data_dict[update.effective_user.id]["Действия"] = update.message.text
-    await update.message.reply_text("Пришлите документы, скрины, фото или видео (можно несколько), или напишите 'нет'")
+    await update.message.reply_text(
+        "Пришлите документы, скрины, фото или видео (можно несколько), или напишите 'нет'"
+    )
     return ASK_FILES
 
 async def ask_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     data = user_data_dict.get(user.id, {})
-    
+
     summary = "📥 Новый кейс обхода клиента:\n\n"
     summary += f"Ваши ФИО и ФИО РГП? {data.get('ФИО и ФИО РГП')}\n"
     summary += f"Номер заявки, по которой произошел обход? {data.get('Номер заявки')}\n"
@@ -68,7 +73,7 @@ async def ask_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary += f"ФИО клиента, который совершил обход? {data.get('ФИО клиента')}\n"
     summary += f"По какому объекту обход? (номер объекта, адрес) {data.get('Объект')}\n"
     summary += f"Когда это произошло (дата, примерное время)? {data.get('Время')}\n"
-    summary += f"Какие действия были уже предприняты? (звонки, сообщения, фиксация и т.п.) {data.get('Действия')}"
+    summary += f"Какие действия были уже предприняты? {data.get('Действия')}"
 
     await update.message.reply_text("✅ Спасибо! Мы начали работу по обращению.", reply_markup=ReplyKeyboardRemove())
 
@@ -85,28 +90,38 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Опрос прерван.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+# --- Инициализация приложения и запуск polling ---
 
-conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(start_survey_callback, pattern="^start_survey$")],
-    states={
-        ASK_FIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_fio)],
-        ASK_REQUEST_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_request)],
-        ASK_CONTRACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_contract)],
-        ASK_CLIENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_client)],
-        ASK_OBJECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_object)],
-        ASK_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_time)],
-        ASK_ACTIONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_actions)],
-        ASK_FILES: [MessageHandler(filters.ALL, ask_files)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-)
+async def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(conv_handler)
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_survey_callback, pattern="^start_survey$")],
+        states={
+            ASK_FIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_fio)],
+            ASK_REQUEST_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_request)],
+            ASK_CONTRACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_contract)],
+            ASK_CLIENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_client)],
+            ASK_OBJECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_object)],
+            ASK_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_time)],
+            ASK_ACTIONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_actions)],
+            ASK_FILES: [MessageHandler(filters.ALL, ask_files)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(conv_handler)
+
+    await app.bot.delete_webhook(drop_pending_updates=True)
+    await app.initialize()
+    await app.start()
+    print("🔄 Бот запущен через polling.")
+    await app.updater.start_polling()
+    await app.updater.idle()
 
 if __name__ == "__main__":
-    import logging
     logging.basicConfig(level=logging.DEBUG)
-    print("🔄 Бот запускается...")
-    app.run_polling()
+    import asyncio
+    asyncio.run(main())
+
