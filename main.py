@@ -1,31 +1,50 @@
 import os
 from flask import Flask, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ConversationHandler, ContextTypes, filters
+    ApplicationBuilder, CommandHandler, ContextTypes,
+    CallbackQueryHandler, MessageHandler, ConversationHandler,
+    filters, InlineKeyboardButton, InlineKeyboardMarkup
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT = int(os.environ.get("PORT", 10000))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://etagi-bot.onrender.com/webhook
+PORT = int(os.getenv("PORT", 10000))
 FORWARD_TO_CHAT_ID = os.getenv("FORWARD_TO_CHAT_ID")
 
-# Состояния опроса
-(ASK_FIO, ASK_REQUEST_ID, ASK_CONTRACT, ASK_CLIENT, ASK_OBJECT, ASK_TIME, ASK_ACTIONS, ASK_FILES) = range(8)
+ASK_FIO, ASK_REQUEST_ID, ASK_CONTRACT, ASK_CLIENT, ASK_OBJECT, ASK_TIME, ASK_ACTIONS, ASK_FILES = range(8)
 user_data_dict = {}
 
-# Flask-приложение
-flask_app = Flask(__name__)
+app = Flask(__name__)
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# Старт
+@app.before_first_request
+def setup_webhook():
+    from threading import Thread
+    import asyncio
+
+    async def run_setup():
+        await telegram_app.bot.delete_webhook()
+        await telegram_app.bot.set_webhook(url=WEBHOOK_URL)
+
+    Thread(target=lambda: asyncio.run(run_setup())).start()
+
+@app.route("/")
+def index():
+    return "Bot is live", 200
+
+@app.route("/webhook", methods=["POST"])
+async def webhook():
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    await telegram_app.process_update(update)
+    return "ok", 200
+
+# === Хендлеры ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("Запустить опрос", callback_data="start_survey")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Чтобы оставить обращение, нажмите кнопку ниже", reply_markup=reply_markup)
 
-# Начало опроса
 async def start_survey_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.message.edit_text("Ваши ФИО и ФИО РГП?")
@@ -33,7 +52,7 @@ async def start_survey_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def ask_fio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data_dict[update.effective_user.id] = {"ФИО и ФИО РГП": update.message.text}
-    await update.message.reply_text("Номер заявки, по которой произошел обход?")
+    await update.message.reply_text("Номер заявки?")
     return ASK_REQUEST_ID
 
 async def ask_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -43,12 +62,12 @@ async def ask_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_contract(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data_dict[update.effective_user.id]["Договор"] = update.message.text
-    await update.message.reply_text("ФИО клиента, который совершил обход?")
+    await update.message.reply_text("ФИО клиента?")
     return ASK_CLIENT
 
 async def ask_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data_dict[update.effective_user.id]["ФИО клиента"] = update.message.text
-    await update.message.reply_text("По какому объекту обход? (адрес или номер)")
+    await update.message.reply_text("По какому объекту произошёл обход?")
     return ASK_OBJECT
 
 async def ask_object(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,13 +82,12 @@ async def ask_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data_dict[update.effective_user.id]["Действия"] = update.message.text
-    await update.message.reply_text("Пришлите документы, скрины, фото или видео (можно несколько), или напишите 'нет'")
+    await update.message.reply_text("Пришлите документы, скрины, фото или видео, или напишите 'нет'")
     return ASK_FILES
 
 async def ask_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     data = user_data_dict.get(user.id, {})
-    
     summary = (
         "Новый кейс обхода клиента:\n\n"
         f"ФИО и ФИО РГП: {data.get('ФИО и ФИО РГП')}\n"
@@ -80,32 +98,14 @@ async def ask_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Время: {data.get('Время')}\n"
         f"Действия: {data.get('Действия')}"
     )
-
     await update.message.reply_text("Спасибо! Мы начали работу по обращению.")
-
-    try:
-        if FORWARD_TO_CHAT_ID:
-            await context.bot.send_message(chat_id=FORWARD_TO_CHAT_ID, text=summary)
-            if update.message.document or update.message.photo:
-                await update.message.forward(chat_id=FORWARD_TO_CHAT_ID)
-    except Exception as e:
-        print("Ошибка при пересылке:", e)
-
+    if FORWARD_TO_CHAT_ID:
+        await context.bot.send_message(chat_id=FORWARD_TO_CHAT_ID, text=summary)
+        if update.message.document or update.message.photo:
+            await update.message.forward(chat_id=FORWARD_TO_CHAT_ID)
     return ConversationHandler.END
 
-# Webhook-приемник
-@flask_app.route("/webhook", methods=["POST"])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    await telegram_app.process_update(update)
-    return "ok", 200
-
-# Для Render — просто проверка живости
-@flask_app.route("/", methods=["GET"])
-def index():
-    return "Bot is live"
-
-# Подключение хендлеров
+# === Подключение ===
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CallbackQueryHandler(start_survey_callback, pattern="^start_survey$"))
 telegram_app.add_handler(ConversationHandler(
@@ -123,10 +123,6 @@ telegram_app.add_handler(ConversationHandler(
     fallbacks=[],
 ))
 
-# Запуск: удалить старый вебхук и установить новый
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(telegram_app.bot.delete_webhook())
-    asyncio.run(telegram_app.bot.set_webhook(url=WEBHOOK_URL))
-    print("Bot and webhook started successfully.")
-    flask_app.run(host="0.0.0.0", port=PORT)
+    telegram_app.initialize()
+    app.run(host="0.0.0.0", port=PORT)
