@@ -130,5 +130,5 @@ if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     loop.run_until_complete(application.bot.delete_webhook())
     loop.run_until_complete(application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}"))
-    print("\ud83d\udd04 Бот и вебхук запущены!")
+    print("Bot and webhook started successfully.")
     app_flask.run(host='0.0.0.0', port=PORT)
