@@ -1,33 +1,32 @@
-import os
-import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from functools import wraps
+import os, asyncio
 
-# Load env
+# Настройки
 TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_PATH = "/webhook"
-PORT = int(os.environ.get("PORT", 10000))
+PORT = int(os.getenv("PORT", 10000))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Flask app
+# Flask
 app = Flask(__name__)
 
-# Telegram app
+# Telegram Application
 telegram_app = Application.builder().token(TOKEN).build()
 
-# Handler
+# Обработчик команды
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Бот работает!")
 
 telegram_app.add_handler(CommandHandler("start", start))
 
-# Обёртка для Flask (асинхронный webhook)
-def async_route(f):
-    @wraps(f)
+# Обёртка: async → sync для Flask
+def async_route(fn):
+    @wraps(fn)
     def wrapper(*args, **kwargs):
-        return asyncio.run(f(*args, **kwargs))
+        return asyncio.run(fn(*args, **kwargs))
     return wrapper
 
 @app.route("/")
@@ -37,8 +36,7 @@ def index():
 @app.route(WEBHOOK_PATH, methods=["POST"])
 @async_route
 async def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, telegram_app.bot)
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
     await telegram_app.process_update(update)
     return "ok", 200
 
