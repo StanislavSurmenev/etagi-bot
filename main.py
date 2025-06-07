@@ -6,7 +6,7 @@ import asyncio
 
 # Load env
 TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_PATH = "/webhook/webhook"
+WEBHOOK_PATH = "/webhook"
 PORT = int(os.environ.get("PORT", 10000))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
