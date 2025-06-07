@@ -1,8 +1,9 @@
 import os
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-import asyncio
+from functools import wraps
 
 # Load env
 TOKEN = os.getenv("BOT_TOKEN")
@@ -13,26 +14,33 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 # Flask app
 app = Flask(__name__)
 
-# Telegram bot setup
+# Telegram app
 telegram_app = Application.builder().token(TOKEN).build()
 
-# Example handler
+# Handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Бот работает.")
+    await update.message.reply_text("Бот работает!")
 
 telegram_app.add_handler(CommandHandler("start", start))
 
+# Обёртка для Flask (асинхронный webhook)
+def async_route(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        return asyncio.run(f(*args, **kwargs))
+    return wrapper
 
 @app.route("/")
 def index():
     return "OK", 200
 
 @app.route(WEBHOOK_PATH, methods=["POST"])
+@async_route
 async def webhook():
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-        await telegram_app.process_update(update)
-        return "ok", 200
+    data = request.get_json(force=True)
+    update = Update.de_json(data, telegram_app.bot)
+    await telegram_app.process_update(update)
+    return "ok", 200
 
 async def setup_webhook():
     await telegram_app.bot.delete_webhook()
